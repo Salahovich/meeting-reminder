@@ -12,7 +12,17 @@ _ALIAS = "meeting_reminder_sound"
 
 def _mci(command):
     buf = ctypes.create_unicode_buffer(255)
-    _winmm.mciSendStringW(command, buf, 254, None)
+    rc = _winmm.mciSendStringW(command, buf, 254, None)
+    if rc != 0:
+        # MCI commands quietly fail when another app holds the audio session
+        # exclusively (some screen recorders do this). Surface the error so the
+        # cause is visible in stderr instead of silent silence.
+        err = ctypes.create_unicode_buffer(255)
+        _winmm.mciGetErrorStringW = getattr(_winmm, "mciGetErrorStringW", None)
+        if _winmm.mciGetErrorStringW:
+            _winmm.mciGetErrorStringW.argtypes = [ctypes.c_uint, ctypes.c_wchar_p, ctypes.c_uint]
+            _winmm.mciGetErrorStringW(rc, err, 254)
+        print(f"[SoundPlayer] MCI error {rc} on {command!r}: {err.value!r}", flush=True)
     return buf.value
 
 

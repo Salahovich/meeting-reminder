@@ -95,7 +95,6 @@ class ReminderApp:
             header_upcoming = sorted(
                 [m for m in all_today if m.start > now], key=lambda m: m.start
             )
-            now2 = datetime.now()
             with self.lock:
                 self._today_cache = [
                     {
@@ -103,8 +102,8 @@ class ReminderApp:
                         "subject": m.subject,
                         "isTeams": bool(m.join_url),
                         "joinUrl": m.join_url or "",
-                        "isOverdue": m.start < now2,
-                        "isLive": m.start <= now2 < m.end,
+                        "startIso": m.start.isoformat(),
+                        "endIso": m.end.isoformat(),
                     }
                     for m in sorted(all_today, key=lambda m: m.start)
                 ]
@@ -181,6 +180,10 @@ class ReminderApp:
 
         if self.window:
             webui.set_alert_size(self.window)
+            # Briefly raise the widget above the current foreground app — keeps
+            # the alarm visible even when a screen recorder or fullscreen window
+            # covers the bottom-right corner.
+            webui.force_to_front(self.window)
             payload = {
                 "subject": meeting.subject,
                 "startIso": meeting.start.isoformat(),
@@ -219,7 +222,6 @@ class ReminderApp:
         token = self._ensure_token()
         if not token:
             return []
-        now = datetime.now()
         meetings = graph_calendar.get_todays_meetings(token)
         return [
             {
@@ -227,8 +229,8 @@ class ReminderApp:
                 "subject": m.subject,
                 "isTeams": bool(m.join_url),
                 "joinUrl": m.join_url or "",
-                "isOverdue": m.start < now,
-                "isLive": m.start <= now < m.end,
+                "startIso": m.start.isoformat(),
+                "endIso": m.end.isoformat(),
             }
             for m in sorted(meetings, key=lambda m: m.start)
         ]

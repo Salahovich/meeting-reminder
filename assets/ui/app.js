@@ -112,18 +112,29 @@ function tickAlert() {
 
 // ---- today panel ----
 
+let lastTodayList = [];
+
 function renderToday(list) {
+  if (list) lastTodayList = list;
   const container = document.getElementById('todayList');
   container.innerHTML = '';
-  if (!list || !list.length) {
+  if (!lastTodayList.length) {
     container.innerHTML = '<div class="today-empty">No meetings today</div>';
     return;
   }
-  list.forEach((m) => {
+  const now = new Date();
+  lastTodayList.forEach((m) => {
+    // Compute live/overdue at render time from the absolute timestamps —
+    // never stale, no matter when the cache was last pushed.
+    const start = m.startIso ? new Date(m.startIso) : null;
+    const end   = m.endIso   ? new Date(m.endIso)   : null;
+    const isLive    = start && end && start <= now && now < end;
+    const isOverdue = start && end && now >= end;
+
     const row = document.createElement('div');
     let cls = 'today-row';
-    if (m.isLive) cls += ' live-now';
-    else if (m.isOverdue) cls += ' overdue';
+    if (isLive) cls += ' live-now';
+    else if (isOverdue) cls += ' overdue';
     row.className = cls;
 
     const left = document.createElement('span');
@@ -131,7 +142,7 @@ function renderToday(list) {
     left.innerHTML = `<span class="time-badge">${m.time}</span>${escapeHtml(m.subject)}`;
     row.appendChild(left);
 
-    if (m.isLive && m.joinUrl) {
+    if (isLive && m.joinUrl) {
       const btn = document.createElement('button');
       btn.className = 'btn-live-join';
       btn.innerHTML = '<span class="live-dot"></span>&nbsp;JOIN';
@@ -147,6 +158,12 @@ function renderToday(list) {
     container.appendChild(row);
   });
 }
+
+// Re-render every second so meetings transition through upcoming -> live ->
+// overdue without waiting for the next Python push.
+setInterval(() => {
+  if (todayOpen) renderToday(null);
+}, 1000);
 
 function escapeHtml(s) {
   const div = document.createElement('div');

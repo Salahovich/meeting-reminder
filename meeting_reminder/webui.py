@@ -1,5 +1,6 @@
 import ctypes
 import os
+import threading
 import webbrowser
 
 import webview
@@ -56,6 +57,21 @@ def set_today_size(window):
 
 def set_alert_size(window):
     _apply_size(window, ALERT_SIZE)
+
+
+def force_to_front(window):
+    """Make the alert visible over screen recorders / fullscreen apps.
+
+    pywebview's on_top property toggles WinForms.Form.TopMost; flipping it
+    True then False forces Windows to re-evaluate Z-order so the widget
+    comes to the front but doesn't stay pinned afterwards.
+    """
+    try:
+        window.on_top = True
+        # Brief pin so Windows actually raises it above the current foreground
+        threading.Timer(0.5, lambda: setattr(window, "on_top", False)).start()
+    except Exception as exc:
+        print(f"[webui] force_to_front failed: {exc!r}", flush=True)
 
 
 class JsApi:
