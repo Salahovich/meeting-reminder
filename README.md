@@ -69,6 +69,9 @@ Create a shortcut to `start_silent.vbs` (included) in your Startup folder
 window appears — the sign-in window (if needed) still appears normally since it's
 part of the app's own UI, not a console prompt.
 
+See [NOTES.md](NOTES.md) for the development history — failed approaches (and why),
+bugs found, and the reasoning behind the final architecture.
+
 ## Project layout
 
 - `meeting_reminder/graph_auth.py` — interactive browser sign-in + token caching (MSAL).
