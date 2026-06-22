@@ -1,23 +1,30 @@
 # Meeting Reminder
 
-A small always-on-top floating widget (styled like a news-channel "on air" ticker)
-that watches your Microsoft 365 calendar for upcoming Teams meetings. A configurable
-number of minutes before each one starts, it plays a looping countdown sound, pops up
-a live countdown panel, and opens the meeting join link automatically.
+A small floating widget (styled like a news-channel "on air" ticker) that watches your
+Microsoft 365 calendar for upcoming Teams meetings, then plays a looping countdown
+sound and pops a live MM:SS countdown panel a configurable number of minutes before
+each one starts. After the meeting actually starts the panel stays up for half an
+hour with a pulsing **REJOIN** button so a missed start isn't a missed meeting.
 
 ## How it works
 
 - The UI is a frameless HTML/CSS/JS widget rendered via [pywebview](https://pywebview.flowrl.com/)
   (Edge WebView2), anchored to the bottom-right of your screen — not a system tray app.
+  Not always-on-top: it sits behind other windows during normal use and only briefly
+  pins itself to the top when an alert fires (so screen recorders / fullscreen apps
+  can't hide it).
 - Calendar data comes from the **Microsoft Graph API**, not desktop Outlook. Sign-in is
   a normal interactive browser-based Microsoft login (the same kind of login Teams/
   Outlook Web already use), not device-code — see [Auth](#auth) below for why.
-- Every `poll_interval_seconds`, it fetches the next `lookahead_minutes` of calendar
-  events and picks out the ones with a Teams `onlineMeeting.joinUrl`.
-- At `alert_lead_minutes` before start: opens the join link in your default handler
-  and shows a live countdown panel, looping `sound_file` until the meeting actually
-  starts. The panel then stays up for `sound_loop_seconds` longer with a **REJOIN**
-  button, in case you missed the auto-opened join link.
+- Every `poll_interval_seconds`, it refreshes the calendar and updates the ticker. A
+  dedicated one-shot timer thread per meeting fires the alert at *exactly*
+  `start − alert_lead_minutes`, so the alarm is on-time regardless of poll cadence.
+- During the alert: the bar collapses, a full-panel countdown shows MM:SS, the
+  alarm sound loops until meeting start, then the panel switches to **MEETING IN
+  PROGRESS** with a green **REJOIN MEETING** button for `sound_loop_seconds` longer.
+- The **Today's Schedule** panel (hamburger icon) lists every meeting on the calendar
+  today. Meetings currently in progress get a live green **JOIN** button next to
+  them, computed in real time from the meeting's start/end timestamps.
 - Remembers which meetings it already alerted for (`state.json`) so it won't repeat,
   even across restarts.
 
@@ -40,8 +47,9 @@ token is cached in `token_cache.bin` so future runs are silent.
    python -m venv .venv
    .venv\Scripts\pip install -r requirements.txt
    ```
-2. Drop your own alert sound (wav or mp3) into `assets/`, e.g. `assets/countdown.mp3`,
-   and point `config.json` → `sound_file` at it (path is relative to the project root).
+2. The default alert sound (`assets/countdown.mp3`) is bundled. To use your own,
+   drop a wav/mp3 into `assets/` and point `config.json` → `sound_file` at it
+   (path is relative to the project root).
 3. Run it:
    ```
    .venv\Scripts\python run.py
@@ -53,14 +61,17 @@ token is cached in `token_cache.bin` so future runs are silent.
 
 ## Config (`config.json`)
 
-| Key | Meaning |
-|---|---|
-| `sound_file` | Path to your alert sound (wav/mp3), relative to project root |
-| `alert_lead_minutes` | How many minutes before meeting start to fire the alert |
-| `sound_loop_seconds` | How long to keep the "rejoin" panel up after the meeting starts |
-| `poll_interval_seconds` | How often to re-check the calendar |
-| `lookahead_minutes` | How far ahead to scan for meetings |
-| `auto_join` | If true, opens the Teams join link automatically when alerting |
+Defaults live in `meeting_reminder/config.py`; create a `config.json` next to
+`run.py` to override any of them.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `sound_file` | `assets/countdown.mp3` | Path to alert sound (wav/mp3), relative to project root |
+| `alert_lead_minutes` | `1` | How many minutes before meeting start to fire the alert |
+| `sound_loop_seconds` | `1800` | How long to keep the "REJOIN" panel up after the meeting starts (default: 30 min) |
+| `poll_interval_seconds` | `5` | How often to re-check the calendar |
+| `lookahead_minutes` | `60` | How far ahead to scan for meetings |
+| `auto_join` | `false` | Reserved; current build never auto-opens — the user always clicks JOIN |
 
 ## Running automatically at login
 
