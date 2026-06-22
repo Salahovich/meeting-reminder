@@ -1,0 +1,8 @@
+{
+  "sound_file": "assets/countdown.mp3",
+  "alert_lead_minutes": 1,
+  "sound_loop_seconds": 30,
+  "poll_interval_seconds": 10,
+  "lookahead_minutes": 60,
+  "auto_join": true
+}

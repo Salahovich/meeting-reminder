@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Meeting Reminder</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="widget">
+    <div id="bar" class="pywebview-drag-region">
+      <span class="live-dot"></span>
+      <span class="label">ON&nbsp;AIR</span>
+      <div class="ticker-wrap"><div id="tickerTrack" class="ticker-track">
+        <span id="tickerA" class="ticker-item">NO UPCOMING MEETINGS</span>
+        <span id="tickerB" class="ticker-item hidden" aria-hidden="true"></span>
+      </div></div>
+      <button id="signInBtn" class="btn-signin hidden">SIGN IN</button>
+      <button id="todayBtn" class="icon-btn" title="Today's meetings">&#9776;</button>
+      <button id="closeBtn" class="icon-btn" title="Quit">&times;</button>
+    </div>
+
+    <div id="todayPanel" class="panel hidden">
+      <div class="panel-header">TODAY'S SCHEDULE</div>
+      <div id="todayList" class="today-list"></div>
+    </div>
+
+    <div id="alertPanel" class="alert hidden">
+      <div class="breaking-badge"><span class="live-dot"></span>&nbsp;MEETING STARTING</div>
+      <div id="alertSubject" class="alert-subject"></div>
+      <div id="countdown" class="countdown">00:00</div>
+      <div class="alert-actions">
+        <button id="joinBtn" class="btn btn-join">JOIN NOW</button>
+        <button id="dismissBtn" class="btn btn-dismiss">DISMISS</button>
+      </div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
