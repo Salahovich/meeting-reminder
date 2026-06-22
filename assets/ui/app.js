@@ -1,10 +1,20 @@
-let idleDeadline = null;   // Date of next meeting start, or null
+let idleDeadline = null;
 let nextSubject = '';
-let alertStart = null;     // Date the alerting meeting starts
+let alertStart = null;
 let joinUrl = '';
 let todayOpen = false;
 let countdownTimer = null;
-let signInStatus = 'unknown'; // unknown | needs_sign_in | signing_in | signed_in | error
+let signInStatus = 'unknown';
+
+// ---- ticker ----
+
+function fmtMMSS(ms) {
+  if (ms <= 0) return '00:00';
+  const totalSec = Math.ceil(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
 
 function fmtRemaining(ms) {
   if (ms <= 0) return 'now';
@@ -25,17 +35,14 @@ function tickerText() {
   return `NEXT: ${nextSubject} · STARTS IN ${fmtRemaining(remaining)}`;
 }
 
-let lastTickerText = null;
-
-function tickIdle() {
-  const text = tickerText();
-  if (text !== lastTickerText) {
-    lastTickerText = text;
-    document.getElementById('tickerA').textContent = text;
-    document.getElementById('tickerB').textContent = text;
-    adjustTickerScroll();
-  }
+// Identifies whether the *meaningful* part of the ticker changed (subject/meeting),
+// ignoring the countdown seconds which change every tick.
+function tickerScrollKey() {
+  return `${signInStatus}|${nextSubject}|${idleDeadline ? idleDeadline.toISOString().slice(0, 16) : ''}`;
 }
+
+let lastTickerText = null;
+let lastScrollKey = null;
 
 function adjustTickerScroll() {
   const wrap = document.querySelector('.ticker-wrap');
@@ -50,29 +57,60 @@ function adjustTickerScroll() {
   requestAnimationFrame(() => {
     if (itemA.scrollWidth > wrap.clientWidth) {
       itemB.classList.remove('hidden');
-      const duration = Math.max(8, (itemA.scrollWidth / 40));
+      const duration = Math.max(8, itemA.scrollWidth / 40);
       track.style.setProperty('--ticker-duration', `${duration}s`);
       track.classList.add('scrolling');
     }
   });
 }
 
+function tickIdle() {
+  const text = tickerText();
+  if (text !== lastTickerText) {
+    lastTickerText = text;
+    // Update both spans in-place so the CSS animation keeps running uninterrupted.
+    document.getElementById('tickerA').textContent = text;
+    document.getElementById('tickerB').textContent = text;
+
+    // Only restart the CSS animation when the meeting/subject changes,
+    // not on every countdown-second update (which would reset the animation each tick).
+    const scrollKey = tickerScrollKey();
+    if (scrollKey !== lastScrollKey) {
+      lastScrollKey = scrollKey;
+      adjustTickerScroll();
+    }
+  }
+}
+
+// ---- alert countdown ----
+
 function tickAlert() {
   const el = document.getElementById('countdown');
+  const badge = document.getElementById('alertBadge');
   const joinBtn = document.getElementById('joinBtn');
   if (!alertStart) return;
   const remaining = alertStart - new Date();
   if (remaining <= 0) {
     el.textContent = 'LIVE';
-    joinBtn.textContent = 'REJOIN';
+    el.classList.add('live');
+    joinBtn.textContent = 'REJOIN MEETING';
+    joinBtn.classList.remove('btn-join');
+    joinBtn.classList.add('btn-rejoin');
+    if (badge) {
+      badge.className = 'breaking-badge live';
+      badge.innerHTML = '<span class="live-dot"></span>&nbsp;MEETING IN PROGRESS';
+    }
   } else {
-    const totalSec = Math.floor(remaining / 1000);
-    const m = Math.floor(totalSec / 60);
-    const s = totalSec % 60;
-    el.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    el.textContent = fmtMMSS(remaining);
+    el.classList.remove('live');
     joinBtn.textContent = 'JOIN NOW';
+    joinBtn.classList.remove('btn-rejoin');
+    joinBtn.classList.add('btn-join');
+    // Badge keeps its static "UPCOMING MEETING" label — no countdown in the badge
   }
 }
+
+// ---- today panel ----
 
 function renderToday(list) {
   const container = document.getElementById('todayList');
@@ -83,13 +121,23 @@ function renderToday(list) {
   }
   list.forEach((m) => {
     const row = document.createElement('div');
-    row.className = 'today-row' + (m.isOverdue ? ' overdue' : '');
+    let cls = 'today-row';
+    if (m.isLive) cls += ' live-now';
+    else if (m.isOverdue) cls += ' overdue';
+    row.className = cls;
+
     const left = document.createElement('span');
     left.className = 'subject';
     left.innerHTML = `<span class="time-badge">${m.time}</span>${escapeHtml(m.subject)}`;
     row.appendChild(left);
 
-    if (m.isTeams) {
+    if (m.isLive && m.joinUrl) {
+      const btn = document.createElement('button');
+      btn.className = 'btn-live-join';
+      btn.innerHTML = '<span class="live-dot"></span>&nbsp;JOIN';
+      btn.addEventListener('click', () => window.pywebview.api.join_now(m.joinUrl));
+      row.appendChild(btn);
+    } else if (m.isTeams) {
       const tag = document.createElement('span');
       tag.className = 'tag-teams';
       tag.textContent = 'TEAMS';
@@ -118,13 +166,34 @@ window.updateIdle = function (payload) {
   tickIdle();
 };
 
+// Called by Python (via evaluate_js) to refresh the today list while the panel is open.
+// Using a Python-push avoids a concurrent JS→Python API call that can deadlock the bridge.
+window.updateTodayList = function (list) {
+  if (todayOpen) {
+    renderToday(list);
+  }
+};
+
 window.showAlert = function (payload) {
+  document.getElementById('bar').classList.add('hidden');
   document.getElementById('alertPanel').classList.remove('hidden');
   document.getElementById('todayPanel').classList.add('hidden');
   todayOpen = false;
   document.getElementById('alertSubject').textContent = payload.subject;
   alertStart = new Date(payload.startIso);
   joinUrl = payload.joinUrl || '';
+
+  // Reset live-state classes from any previous alert
+  const countdown = document.getElementById('countdown');
+  countdown.classList.remove('live');
+  const joinBtn = document.getElementById('joinBtn');
+  joinBtn.classList.remove('btn-rejoin');
+  joinBtn.classList.add('btn-join');
+  const badge = document.getElementById('alertBadge');
+  if (badge) {
+    badge.className = 'breaking-badge';
+    badge.innerHTML = '<span class="live-dot"></span>&nbsp;UPCOMING MEETING';
+  }
 
   tickAlert();
   if (countdownTimer) clearInterval(countdownTimer);
@@ -154,6 +223,7 @@ window.setSignInStatus = function (status, error) {
 };
 
 window.hideAlert = function () {
+  document.getElementById('bar').classList.remove('hidden');
   document.getElementById('alertPanel').classList.add('hidden');
   document.getElementById('todayPanel').classList.add('hidden');
   todayOpen = false;
@@ -186,7 +256,10 @@ whenReady(() => {
   tickIdle();
 
   document.getElementById('joinBtn').addEventListener('click', () => {
-    if (joinUrl) window.pywebview.api.join_now(joinUrl);
+    if (joinUrl) {
+      window.pywebview.api.join_now(joinUrl);
+      window.pywebview.api.dismiss();
+    }
   });
 
   document.getElementById('dismissBtn').addEventListener('click', () => {
@@ -207,7 +280,6 @@ whenReady(() => {
     if (todayOpen) {
       panel.classList.remove('hidden');
       window.pywebview.api.toggle_today(true);
-      window.pywebview.api.get_today_meetings().then(renderToday);
     } else {
       panel.classList.add('hidden');
       window.pywebview.api.toggle_today(false);

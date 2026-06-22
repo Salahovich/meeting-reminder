@@ -2,7 +2,6 @@ import json
 import threading
 import time
 import traceback
-import webbrowser
 from datetime import datetime, timedelta
 
 import webview
@@ -18,7 +17,7 @@ class ReminderApp:
     def __init__(self):
         self.config = load_config()
         self.triggered = state.load_triggered_ids()
-        self.player = SoundPlayer()
+        self.player = SoundPlayer()  # Plays audible alarm via Windows MCI
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.window = None
@@ -27,6 +26,8 @@ class ReminderApp:
         self.today_panel_open = False
         self.access_token = None
         self.sign_in_in_progress = False
+        self.scheduled = set()   # meeting IDs that have a _wait_and_fire thread
+        self._today_cache = []   # last-fetched today payload, pushed to panel on open
 
     # ---- auth ----
 
@@ -85,7 +86,32 @@ class ReminderApp:
         lead = timedelta(minutes=self.config["alert_lead_minutes"])
 
         upcoming = sorted(meetings, key=lambda m: m.start)
-        self._push_idle_state(upcoming)
+
+        # Fetch all of today's meetings: used for the idle-state header (shows meetings
+        # beyond the 60-min alert window) and the today-panel cache (no blocking API
+        # call on every panel open).
+        try:
+            all_today = graph_calendar.get_todays_meetings(token)
+            header_upcoming = sorted(
+                [m for m in all_today if m.start > now], key=lambda m: m.start
+            )
+            now2 = datetime.now()
+            with self.lock:
+                self._today_cache = [
+                    {
+                        "time": m.start.strftime("%H:%M"),
+                        "subject": m.subject,
+                        "isTeams": bool(m.join_url),
+                        "joinUrl": m.join_url or "",
+                        "isOverdue": m.start < now2,
+                        "isLive": m.start <= now2 < m.end,
+                    }
+                    for m in sorted(all_today, key=lambda m: m.start)
+                ]
+        except Exception:
+            header_upcoming = upcoming
+
+        self._push_idle_state(header_upcoming)
 
         for meeting in upcoming:
             if meeting.entry_id in self.triggered:
@@ -96,24 +122,51 @@ class ReminderApp:
 
             if too_late:
                 self.triggered[meeting.entry_id] = time.time()
+                state.save_triggered_ids(self.triggered)
                 continue
 
-            if now >= trigger_time:
-                self._fire_alert(meeting)
-                self.triggered[meeting.entry_id] = time.time()
+            # Schedule a dedicated thread that sleeps until exactly trigger_time.
+            # This fires the alert at the precise moment rather than relying on the
+            # next poll cycle (which could be up to poll_interval seconds late).
+            with self.lock:
+                if meeting.entry_id in self.scheduled:
+                    continue
+                self.scheduled.add(meeting.entry_id)
 
+            threading.Thread(
+                target=self._wait_and_fire,
+                args=(meeting, trigger_time),
+                daemon=True,
+            ).start()
+
+    def _wait_and_fire(self, meeting, trigger_time):
+        """Sleeps until trigger_time then fires the alert exactly on schedule."""
+        delay = (trigger_time - datetime.now()).total_seconds()
+        if delay > 0:
+            # stop_event.wait returns True if the event is set (app quitting)
+            if self.stop_event.wait(delay):
+                return
+        with self.lock:
+            if meeting.entry_id in self.triggered:
+                return  # already handled (too-late skip or duplicate)
+            self.triggered[meeting.entry_id] = time.time()
+        self._fire_alert(meeting)
         state.save_triggered_ids(self.triggered)
 
     def _push_idle_state(self, upcoming):
         with self.lock:
             if self.alert_active:
                 return
+            panel_open = self.today_panel_open
+            today_cache = list(self._today_cache)
         if upcoming:
             next_m = upcoming[0]
             payload = {"hasNext": True, "subject": next_m.subject, "startIso": next_m.start.isoformat()}
         else:
             payload = {"hasNext": False}
         self._eval_js(f"window.updateIdle({json.dumps(payload)})")
+        if panel_open:
+            self._eval_js(f"window.updateTodayList({json.dumps(today_cache)})")
 
     def _fire_alert(self, meeting):
         with self.lock:
@@ -134,9 +187,6 @@ class ReminderApp:
                 "joinUrl": meeting.join_url or "",
             }
             self._eval_js(f"window.showAlert({json.dumps(payload)})")
-
-        if self.config.get("auto_join", True) and meeting.join_url:
-            webbrowser.open(meeting.join_url)
 
         try:
             self.player.play(self.config["sound_file"], sound_duration)
@@ -176,7 +226,9 @@ class ReminderApp:
                 "time": m.start.strftime("%H:%M"),
                 "subject": m.subject,
                 "isTeams": bool(m.join_url),
+                "joinUrl": m.join_url or "",
                 "isOverdue": m.start < now,
+                "isLive": m.start <= now < m.end,
             }
             for m in sorted(meetings, key=lambda m: m.start)
         ]
@@ -186,8 +238,10 @@ class ReminderApp:
             if self.alert_active:
                 return
             self.today_panel_open = True
+            today_cache = list(self._today_cache)
         if self.window:
             webui.set_today_size(self.window)
+            self._eval_js(f"window.updateTodayList({json.dumps(today_cache)})")
 
     def hide_today_panel(self):
         with self.lock:

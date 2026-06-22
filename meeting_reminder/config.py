@@ -6,11 +6,11 @@ CONFIG_PATH = os.path.join(ROOT_DIR, "config.json")
 
 DEFAULTS = {
     "sound_file": "assets/countdown.mp3",
-    "alert_lead_minutes": 2,
-    "sound_loop_seconds": 30,  # how long to keep the "rejoin" panel up after the meeting starts
-    "poll_interval_seconds": 10,
+    "alert_lead_minutes": 1,
+    "sound_loop_seconds": 1800,  # 30 min — keeps the rejoin panel visible after meeting starts
+    "poll_interval_seconds": 5,
     "lookahead_minutes": 60,
-    "auto_join": True,
+    "auto_join": False,
 }
 
 

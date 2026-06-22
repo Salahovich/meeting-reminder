@@ -7,14 +7,15 @@ SELECT_FIELDS = "id,subject,start,end,isOnlineMeeting,onlineMeeting,isCancelled"
 
 
 class Meeting:
-    def __init__(self, entry_id, subject, start, join_url):
+    def __init__(self, entry_id, subject, start, end, join_url):
         self.entry_id = entry_id
         self.subject = subject
         self.start = start  # naive local datetime
+        self.end = end      # naive local datetime
         self.join_url = join_url
 
     def __repr__(self):
-        return f"Meeting({self.subject!r}, {self.start}, joinable={bool(self.join_url)})"
+        return f"Meeting({self.subject!r}, {self.start}–{self.end}, joinable={bool(self.join_url)})"
 
 
 def _parse_utc_to_local(date_time_str):
@@ -52,6 +53,7 @@ def _fetch(token, start_utc, end_utc, require_join_url):
                 entry_id=event["id"],
                 subject=event.get("subject", "(no subject)"),
                 start=_parse_utc_to_local(event["start"]["dateTime"]),
+                end=_parse_utc_to_local(event["end"]["dateTime"]),
                 join_url=join_url,
             )
         )
