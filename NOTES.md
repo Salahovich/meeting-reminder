@@ -117,6 +117,48 @@ instead (`mciSendStringW`) — no extra dependency, supports both wav and mp3, a
 gives full play/loop/stop control by re-issuing `play ... from 0` in a loop until a
 deadline.
 
+## Timesheet submission reminders
+
+Added a second, independent alert type for payroll-timesheet deadlines: last working
+day on/before the 15th (mid-month) and on/before month-end (end-of-month), with
+Friday/Saturday as the only holidays. All logic lives in `timesheet.py` as pure date
+math with no Graph/network dependency, so it works even before sign-in.
+
+- **Stray "already submitted" bug**: while testing, the row defaulted to showing
+  "Submitted" for every upcoming deadline through several months ahead, even though
+  nothing had actually been submitted. Root cause: `timesheet_state.json` already had
+  every candidate deadline marked submitted — leftover from an earlier UI iteration
+  that showed the mark-as-submitted button unconditionally (not just on the deadline
+  day), so it had been clicked during exploration/testing rather than from a real
+  submission. Fix was just clearing the file — the date-math logic itself was correct
+  the whole time. Lesson: don't trust a "default" status without checking whether the
+  backing state file actually reflects real user action vs. test artifacts.
+- **Testing the alert without waiting for a real deadline / without corrupting real
+  state**: `scratch_test_timesheet_alert.py` monkey-patches
+  `timesheet.SUBMITTED_PATH` to a scratch file *before* constructing `ReminderApp`,
+  then calls `app._fire_timesheet_alert(date.today())` directly on a short timer
+  instead of going through the real date-comparison path. This lets you see/hear the
+  actual alert UI and exercise the "mark as submitted" button without ever touching
+  the real `timesheet_state.json` — important because that file double-duties as the
+  durable record of what's actually been submitted.
+- The status label is intentionally three-state, not two: **Waiting** (before the
+  deadline) → **Not submitted** (on/after the deadline day, unsubmitted — distinct
+  from "Waiting" because it's now actionable/overdue) → **Submitted**. An earlier
+  version had a "mark as submitted" button always visible in the today-panel row,
+  which the user explicitly didn't want — the decision to mark something submitted
+  should only be presented as an action on the deadline day itself (either in the
+  panel row or the alert panel), not as a way to silently skip ahead.
+
+## Auto-join
+
+`auto_join` in `config.json` was defined from the start but intentionally left
+unimplemented (`README.md` said "reserved"). Implemented it as a one-shot timer thread
+spawned alongside the alert: sleeps until the meeting's actual start time, then checks
+under the lock whether the alert is *still* the active one for this meeting (i.e. not
+already dismissed or superseded) before calling `webbrowser.open()`. This avoids
+auto-opening a join link after the user already left/dismissed the alert manually
+before the meeting started.
+
 ## Misc
 
 - Don't create test calendar items by assigning a naive Python `datetime` directly to

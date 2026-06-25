@@ -25,8 +25,16 @@ hour with a pulsing **REJOIN** button so a missed start isn't a missed meeting.
 - The **Today's Schedule** panel (hamburger icon) lists every meeting on the calendar
   today. Meetings currently in progress get a live green **JOIN** button next to
   them, computed in real time from the meeting's start/end timestamps.
-- Remembers which meetings it already alerted for (`state.json`) so it won't repeat,
-  even across restarts.
+- If `auto_join` is enabled, the Teams link opens automatically the instant the
+  countdown hits zero — no click needed, unless you already dismissed/joined first.
+- Below the schedule, a **Next Timesheet Submission** row tracks your next payroll
+  deadline (last working day on/before the 15th, and on/before month-end; Friday and
+  Saturday count as holidays). It reads **Waiting** until the deadline day, then
+  **Not submitted** with a mark-as-done control, then **Submitted** once confirmed.
+  On the deadline day itself, it fires the same alert panel every hour from 8 AM to
+  4 PM until you mark it submitted.
+- Remembers which meetings it already alerted for (`state.json`) and which timesheet
+  deadlines are submitted (`timesheet_state.json`), so neither repeats across restarts.
 
 ## Auth
 
@@ -90,7 +98,13 @@ bugs found, and the reasoning behind the final architecture.
 - `meeting_reminder/sound_player.py` — loops a wav/mp3 via the Windows MCI API.
 - `meeting_reminder/webui.py` — pywebview window lifecycle + the Python↔JS bridge.
 - `meeting_reminder/main.py` — polling loop, alert triggering, app state.
+- `meeting_reminder/timesheet.py` — pure date math + persistence for the mid/end-of-month
+  submission deadlines (no Graph/network dependency).
 - `assets/ui/` — the widget's HTML/CSS/JS.
+- `scratch_test_timesheet_alert.py` — manual test harness that opens the widget and
+  fires a fake timesheet alert a couple seconds in, writing to a scratch state file
+  instead of the real `timesheet_state.json` — use this instead of waiting for an
+  actual deadline day to see the alert UI/sound.
 
 ## Notes / limitations
 
