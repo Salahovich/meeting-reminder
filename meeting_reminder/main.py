@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 
 import webview
 
-from . import graph_auth, graph_calendar, state, timesheet, webui
+from . import graph_auth, graph_calendar, office_days, state, timesheet, webui, work_hours
 from .config import load_config
 from .sound_player import SoundPlayer
 
@@ -29,8 +29,10 @@ class ReminderApp:
         self.sign_in_in_progress = False
         self.scheduled = set()   # meeting IDs that have a _wait_and_fire thread
         self._today_cache = []   # last-fetched today payload, pushed to panel on open
-        self.active_alert_kind = None  # 'meeting' | 'timesheet' | None
+        self.active_alert_kind = None  # 'meeting' | 'timesheet' | 'office' | None
         self.last_timesheet_alert_key = None  # (deadline_iso, hour) of last fired reminder
+        self.last_office_alert_keys = set()  # {(kind, date_iso)} of fired office-day reminders
+        self.office_alert_target_iso = None  # date the active office alert's button should mark
 
     # ---- auth ----
 
@@ -70,6 +72,10 @@ class ReminderApp:
                 traceback.print_exc()
             try:
                 self._check_timesheet()
+            except Exception:
+                traceback.print_exc()
+            try:
+                self._check_office_days()
             except Exception:
                 traceback.print_exc()
             self._check_alert_timeout()
@@ -236,6 +242,138 @@ class ReminderApp:
 
         self._push_timesheet_status()
 
+    def _check_office_days(self):
+        self._push_office_days_status()
+
+        now = datetime.now()
+        today = now.date()
+        minimum = self.config["office_days_minimum"]
+
+        if now.hour == office_days.MORNING_ALERT_HOUR and office_days.shortfall_today(minimum, today):
+            self._maybe_fire_office_alert(("morning", today.isoformat()), today, evening=False)
+        elif now.hour == office_days.EVENING_ALERT_HOUR and office_days.shortfall_tomorrow_evening(minimum, today):
+            self._maybe_fire_office_alert(("evening", today.isoformat()), today + timedelta(days=1), evening=True)
+
+    def _maybe_fire_office_alert(self, key, target_day, evening):
+        with self.lock:
+            already_fired = key in self.last_office_alert_keys
+            other_alert_active = self.alert_active
+            if not already_fired and not other_alert_active:
+                self.last_office_alert_keys.add(key)
+        if not already_fired and not other_alert_active:
+            self._fire_office_alert(target_day, evening)
+
+    def _push_office_days_status(self):
+        with self.lock:
+            if self.alert_active:
+                return
+            panel_open = self.today_panel_open
+        if not panel_open:
+            return
+        minimum = self.config["office_days_minimum"]
+        status = office_days.get_week_status(minimum)
+        today_iso = date.today().isoformat()
+        payload = {
+            "minimum": minimum,
+            "count": status["count"],
+            "met": status["met"],
+            "days": [
+                {
+                    "dateIso": d.isoformat(),
+                    "label": office_days.DAY_LABELS[d.weekday()],
+                    "marked": d.isoformat() in status["markedSet"],
+                    "isToday": d.isoformat() == today_iso,
+                }
+                for d in status["days"]
+            ],
+        }
+        self._eval_js(f"window.updateOfficeDays({json.dumps(payload)})")
+
+    def _fire_office_alert(self, target_day, evening):
+        with self.lock:
+            self.alert_active = True
+            self.active_alert_kind = "office"
+            self.alert_close_at = time.time() + self.config["sound_loop_seconds"]
+            self.today_panel_open = False
+            self.office_alert_target_iso = target_day.isoformat()
+
+        if self.window:
+            webui.set_alert_size(self.window)
+            webui.force_to_front(self.window)
+            payload = {
+                "targetDateText": target_day.strftime("%A"),
+                "isTomorrow": evening,
+            }
+            self._eval_js(f"window.showOfficeAlert({json.dumps(payload)})")
+
+        try:
+            self.player.play(self.config["sound_file"], self.config["sound_loop_seconds"])
+        except FileNotFoundError:
+            pass
+
+    def toggle_office_day(self, date_iso):
+        office_days.toggle_marked(date.fromisoformat(date_iso))
+        self._push_office_days_status()
+
+    def mark_office_alert_day(self):
+        with self.lock:
+            target_iso = self.office_alert_target_iso
+            is_office_alert = self.alert_active and self.active_alert_kind == "office"
+
+        if target_iso:
+            office_days.mark(date.fromisoformat(target_iso))
+
+        if is_office_alert:
+            self.hide_alert()
+
+        self._push_office_days_status()
+
+    def _push_work_hours_status(self):
+        with self.lock:
+            if self.alert_active:
+                return
+            panel_open = self.today_panel_open
+        if not panel_open:
+            return
+
+        today = date.today()
+        hours_per_day = self.config["work_hours_per_day"]
+        first_half = work_hours.period_summary(
+            work_hours.first_half_days(today.year, today.month), hours_per_day
+        )
+        second_half = work_hours.period_summary(
+            work_hours.second_half_days(today.year, today.month), hours_per_day
+        )
+        today_iso = today.isoformat()
+
+        def serialize(period):
+            return {
+                "totalHours": period["totalHours"],
+                "workingDayCount": period["workingDayCount"],
+                "days": [
+                    {
+                        "dateIso": d["date"].isoformat(),
+                        "label": str(d["date"].day),
+                        "isHoliday": d["holidayName"] is not None,
+                        "holidayName": d["holidayName"] or "",
+                        "isOff": d["isOff"],
+                        "isToday": d["date"].isoformat() == today_iso,
+                    }
+                    for d in period["days"]
+                ],
+            }
+
+        payload = {
+            "hoursPerDay": hours_per_day,
+            "firstHalf": serialize(first_half),
+            "secondHalf": serialize(second_half),
+        }
+        self._eval_js(f"window.updateWorkHours({json.dumps(payload)})")
+
+    def toggle_day_off(self, date_iso):
+        work_hours.toggle_day_off(date.fromisoformat(date_iso))
+        self._push_work_hours_status()
+
     def _push_idle_state(self, upcoming):
         with self.lock:
             if self.alert_active:
@@ -351,6 +489,11 @@ class ReminderApp:
             webui.set_today_size(self.window)
             self._eval_js(f"window.updateTodayList({json.dumps(today_cache)})")
         self._push_timesheet_status()
+        self._push_work_hours_status()
+        self._push_office_days_status()
+        # Reveal only after the window resize + content pushes are in,
+        # so the panel paints once at final size with no growth animation.
+        self._eval_js("window.revealTodayPanel()")
 
     def hide_today_panel(self):
         with self.lock:

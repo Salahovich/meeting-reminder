@@ -311,6 +311,140 @@ html, body {
   border-color: #888;
 }
 
+/* ---- working hours calendar (today panel) ---- */
+
+.workhours-header {
+  margin-top: 14px;
+}
+
+.workhours-period {
+  margin-bottom: 8px;
+}
+
+.workhours-period-title {
+  color: #aaa;
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.workhours-days-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-bottom: 4px;
+}
+
+.workhours-day-pill {
+  width: 26px;
+  height: 24px;
+  border-radius: 4px;
+  background: #1a1a1a;
+  color: #ccc;
+  border: 1px solid #333;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.workhours-day-pill:hover {
+  border-color: #888;
+  color: #fff;
+}
+
+.workhours-day-pill.off {
+  background: #b45309;
+  color: #fff;
+  border-color: #b45309;
+}
+
+.workhours-day-pill.off:hover {
+  background: #d97706;
+}
+
+.workhours-day-pill.holiday {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.workhours-day-pill.holiday:hover {
+  border-color: #333;
+  color: #ccc;
+}
+
+.workhours-day-pill.today {
+  box-shadow: 0 0 0 2px #555;
+}
+
+/* ---- office days tracker (today panel) ---- */
+
+.office-header {
+  margin-top: 14px;
+}
+
+.office-summary {
+  color: #888;
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.office-summary.met {
+  color: #22c55e;
+}
+
+.office-days-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+
+.office-day-circle {
+  width: 70px;
+  height: 30px;
+  min-width: 30px;
+  border-radius: 5px;
+  background: #1a1a1a;
+  color: #888;
+  border: 1px solid #333;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.office-day-circle:hover {
+  border-color: #888;
+  color: #ccc;
+}
+
+.office-day-circle.marked {
+  background: #e2231a;
+  color: #fff;
+  border-color: #e2231a;
+}
+
+.office-day-circle.marked:hover {
+  background: #e2231a;
+}
+
+.office-day-circle.today {
+  box-shadow: 0 0 0 2px #555;
+}
+
+.office-day-circle.marked.today {
+  box-shadow: 0 0 0 2px #93c5fd;
+}
+
 /* ---- alert panel ---- */
 
 .alert {
@@ -456,4 +590,19 @@ html, body {
 
 .btn-submit:hover {
   background: #22c55e;
+}
+
+/* ---- office day alert ---- */
+
+.breaking-badge.office {
+  background: #2563eb;
+}
+
+.btn-office {
+  background: #2563eb;
+  color: #fff;
+}
+
+.btn-office:hover {
+  background: #3b82f6;
 }

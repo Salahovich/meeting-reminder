@@ -9,7 +9,7 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UI_INDEX = os.path.join(ROOT_DIR, "assets", "ui", "index.html")
 
 IDLE_SIZE = (380, 64)
-TODAY_SIZE = (380, 340)
+TODAY_SIZE = (380, 535)
 ALERT_SIZE = (380, 300)
 MARGIN_X = 24
 MARGIN_Y = 70  # leave room above the taskbar
@@ -40,11 +40,51 @@ def _bottom_right_position(width, height):
     return screen_w - width - MARGIN_X, screen_h - height - MARGIN_Y
 
 
+SWP_NOZORDER = 0x0004
+SWP_NOACTIVATE = 0x0010
+
+
+def _dpi_scale():
+    try:
+        awareness = ctypes.c_int(0)
+        ctypes.windll.shcore.GetProcessDpiAwareness(0, ctypes.byref(awareness))
+        if awareness.value > 0:
+            return ctypes.windll.user32.GetDpiForSystem() / 96.0
+    except Exception:
+        pass
+    return 1.0
+
+
+def _set_bounds_atomic(window, x, y, w, h):
+    """Move + resize the window in a single SetWindowPos call.
+
+    pywebview's window.resize() and window.move() are two separate native
+    calls. Between them the bottom-right anchor breaks — the window briefly
+    extends past the screen, then jumps to its final spot — which reads
+    visually as a stretch/grow animation. SetWindowPos sets bounds atomically
+    so the window simply appears at its new size in one frame.
+    """
+    try:
+        hwnd = int(window.native.Handle)
+        scale = _dpi_scale()
+        ctypes.windll.user32.SetWindowPos(
+            hwnd, 0,
+            int(x * scale), int(y * scale),
+            int(w * scale), int(h * scale),
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        )
+        return True
+    except Exception as exc:
+        print(f"[webui] _set_bounds_atomic failed, falling back: {exc!r}", flush=True)
+        return False
+
+
 def _apply_size(window, size):
     w, h = size
-    window.resize(w, h)
     x, y = _bottom_right_position(w, h)
-    window.move(x, y)
+    if not _set_bounds_atomic(window, x, y, w, h):
+        window.resize(w, h)
+        window.move(x, y)
 
 
 def set_idle_size(window):
@@ -110,6 +150,15 @@ class JsApi:
 
     def mark_timesheet_submitted(self):
         self._app.mark_timesheet_submitted()
+
+    def toggle_office_day(self, date_iso):
+        self._app.toggle_office_day(date_iso)
+
+    def mark_office_alert_day(self):
+        self._app.mark_office_alert_day()
+
+    def toggle_day_off(self, date_iso):
+        self._app.toggle_day_off(date_iso)
 
 
 def create_window(app):

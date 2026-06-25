@@ -4,5 +4,7 @@
   "sound_loop_seconds": 30,
   "poll_interval_seconds": 10,
   "lookahead_minutes": 60,
-  "auto_join": true
+  "auto_join": true,
+  "office_days_minimum": 1,
+  "work_hours_per_day": 8
 }

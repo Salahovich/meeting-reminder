@@ -230,6 +230,66 @@ window.updateTimesheet = function (payload) {
   }
 };
 
+// Called by Python to refresh the working-hours calendar while the panel is open.
+function renderWorkHoursPeriod(period, titleEl, rowEl, periodLabel) {
+  titleEl.textContent = `${periodLabel} · ${period.workingDayCount}d · ${period.totalHours}h`;
+  rowEl.innerHTML = '';
+  period.days.forEach((d) => {
+    const pill = document.createElement('button');
+    let cls = 'workhours-day-pill';
+    if (d.isHoliday) cls += ' holiday';
+    else if (d.isOff) cls += ' off';
+    if (d.isToday) cls += ' today';
+    pill.className = cls;
+    pill.textContent = d.label;
+    pill.title = d.isHoliday ? d.holidayName : d.dateIso;
+    if (d.isHoliday) {
+      pill.disabled = true;
+    } else {
+      pill.addEventListener('click', () => window.pywebview.api.toggle_day_off(d.dateIso));
+    }
+    rowEl.appendChild(pill);
+  });
+}
+
+window.updateWorkHours = function (payload) {
+  renderWorkHoursPeriod(
+    payload.firstHalf,
+    document.getElementById('firstHalfTitle'),
+    document.getElementById('firstHalfDays'),
+    '1–15'
+  );
+  renderWorkHoursPeriod(
+    payload.secondHalf,
+    document.getElementById('secondHalfTitle'),
+    document.getElementById('secondHalfDays'),
+    '16–end'
+  );
+};
+
+// Called by Python to refresh the office-days row while the panel is open.
+window.updateOfficeDays = function (payload) {
+  const summary = document.getElementById('officeSummary');
+  const row = document.getElementById('officeDaysRow');
+  if (!summary || !row) return;
+
+  summary.textContent = `${payload.count}/${payload.minimum} this week`;
+  summary.className = 'office-summary' + (payload.met ? ' met' : '');
+
+  row.innerHTML = '';
+  payload.days.forEach((d) => {
+    const circle = document.createElement('button');
+    let cls = 'office-day-circle';
+    if (d.marked) cls += ' marked';
+    if (d.isToday) cls += ' today';
+    circle.className = cls;
+    circle.textContent = d.label;
+    circle.title = d.dateIso;
+    circle.addEventListener('click', () => window.pywebview.api.toggle_office_day(d.dateIso));
+    row.appendChild(circle);
+  });
+};
+
 window.showAlert = function (payload) {
   document.getElementById('bar').classList.add('hidden');
   document.getElementById('alertPanel').classList.remove('hidden');
@@ -243,6 +303,7 @@ window.showAlert = function (payload) {
   document.getElementById('countdown').classList.remove('hidden');
   document.getElementById('joinBtn').classList.remove('hidden');
   document.getElementById('submitBtn').classList.add('hidden');
+  document.getElementById('officeMarkBtn').classList.add('hidden');
 
   // Reset live-state classes from any previous alert
   const countdown = document.getElementById('countdown');
@@ -280,11 +341,40 @@ window.showTimesheetAlert = function (payload) {
   document.getElementById('countdown').classList.add('hidden');
   document.getElementById('joinBtn').classList.add('hidden');
   document.getElementById('submitBtn').classList.remove('hidden');
+  document.getElementById('officeMarkBtn').classList.add('hidden');
 
   const badge = document.getElementById('alertBadge');
   if (badge) {
     badge.className = 'breaking-badge timesheet';
     badge.innerHTML = '<span class="live-dot"></span>&nbsp;TIMESHEET REMINDER';
+  }
+};
+
+window.showOfficeAlert = function (payload) {
+  document.getElementById('bar').classList.add('hidden');
+  document.getElementById('alertPanel').classList.remove('hidden');
+  document.getElementById('todayPanel').classList.add('hidden');
+  todayOpen = false;
+
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
+  alertStart = null;
+
+  const when = payload.isTomorrow ? `tomorrow (${payload.targetDateText})` : 'today';
+  document.getElementById('alertSubject').textContent =
+    `You haven't met your weekly office-day goal — plan to work from office ${when}.`;
+
+  document.getElementById('countdown').classList.add('hidden');
+  document.getElementById('joinBtn').classList.add('hidden');
+  document.getElementById('submitBtn').classList.add('hidden');
+  document.getElementById('officeMarkBtn').classList.remove('hidden');
+
+  const badge = document.getElementById('alertBadge');
+  if (badge) {
+    badge.className = 'breaking-badge office';
+    badge.innerHTML = '<span class="live-dot"></span>&nbsp;OFFICE DAY REMINDER';
   }
 };
 
@@ -308,6 +398,13 @@ window.setSignInStatus = function (status, error) {
     btn.classList.add('hidden');
   }
   tickIdle();
+};
+
+// Called by Python after it has resized the native window to TODAY_SIZE and pushed
+// the initial data — only then do we un-hide the panel, avoiding the brief moment
+// where the panel would otherwise paint inside the still-bar-height window.
+window.revealTodayPanel = function () {
+  document.getElementById('todayPanel').classList.remove('hidden');
 };
 
 window.hideAlert = function () {
@@ -358,6 +455,10 @@ whenReady(() => {
     window.pywebview.api.mark_timesheet_submitted();
   });
 
+  document.getElementById('officeMarkBtn').addEventListener('click', () => {
+    window.pywebview.api.mark_office_alert_day();
+  });
+
   document.getElementById('closeBtn').addEventListener('click', () => {
     window.pywebview.api.quit_app();
   });
@@ -370,7 +471,9 @@ whenReady(() => {
     todayOpen = !todayOpen;
     const panel = document.getElementById('todayPanel');
     if (todayOpen) {
-      panel.classList.remove('hidden');
+      // Don't un-hide here — Python resizes the native window first, then calls
+      // window.revealTodayPanel() so the panel only paints at full size (no
+      // visible stretch from bar-height to full-height).
       window.pywebview.api.toggle_today(true);
     } else {
       panel.classList.add('hidden');

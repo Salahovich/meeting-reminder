@@ -11,6 +11,8 @@ DEFAULTS = {
     "poll_interval_seconds": 5,
     "lookahead_minutes": 60,
     "auto_join": False,
+    "office_days_minimum": 1,
+    "work_hours_per_day": 8,
 }
 
 
