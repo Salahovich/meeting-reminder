@@ -15,7 +15,6 @@ class ReminderApp:
         self.config = load_config()
         self.triggered = state.load_triggered_ids()
         self.lock = threading.Lock()
-        self.stop_event = threading.Event()
 
         self.alert_active = False
         self.alert_close_at = None
@@ -63,7 +62,7 @@ class ReminderApp:
     # ---- background polling ----
 
     def poll_loop(self):
-        while not self.stop_event.is_set():
+        while True:
             try:
                 self._check_meetings()
             except Exception:
@@ -77,7 +76,7 @@ class ReminderApp:
             except Exception:
                 traceback.print_exc()
             self._check_alert_timeout()
-            self.stop_event.wait(self.config["poll_interval_seconds"])
+            time.sleep(self.config["poll_interval_seconds"])
 
     def _check_alert_timeout(self):
         with self.lock:
@@ -163,9 +162,7 @@ class ReminderApp:
         """Sleeps until trigger_time then fires the alert exactly on schedule."""
         delay = (trigger_time - datetime.now()).total_seconds()
         if delay > 0:
-            # stop_event.wait returns True if the event is set (app quitting)
-            if self.stop_event.wait(delay):
-                return
+            time.sleep(delay)
         with self.lock:
             if meeting.entry_id in self.triggered:
                 return  # already handled (too-late skip or duplicate)
@@ -292,8 +289,8 @@ class ReminderApp:
         Skipped if the alert was already dismissed (or superseded) by then,
         so a manual dismiss/join before start cancels the auto-open.
         """
-        if delay > 0 and self.stop_event.wait(delay):
-            return
+        if delay > 0:
+            time.sleep(delay)
         with self.lock:
             still_active = self.alert_active and self.active_alert_kind == "meeting"
         if still_active:
@@ -400,6 +397,3 @@ class ReminderApp:
 
     def run(self):
         threading.Thread(target=self.poll_loop, daemon=True).start()
-
-    def stop(self):
-        self.stop_event.set()

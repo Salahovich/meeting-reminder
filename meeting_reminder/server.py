@@ -1,7 +1,7 @@
 import os
 import socket
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_file, send_from_directory
 
 from . import graph_auth
 
@@ -22,6 +22,12 @@ def create_app(reminder_app):
     @app.route("/assets/<path:filename>")
     def assets(filename):
         return send_from_directory(ASSETS_DIR, filename)
+
+    @app.route("/api/sound")
+    def sound():
+        # Uses send_file (not send_from_directory) so a configured sound_file
+        # outside assets/ still works, matching the old SoundPlayer's behavior.
+        return send_file(reminder_app.config["sound_file"])
 
     @app.route("/api/state")
     def state():

@@ -38,9 +38,5 @@ def holidays_for_year(year):
     return result
 
 
-def is_holiday(d):
-    return d in holidays_for_year(d.year)
-
-
 def holiday_name(d):
     return holidays_for_year(d.year).get(d)

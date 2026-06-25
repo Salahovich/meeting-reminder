@@ -44,12 +44,6 @@ def mark(d):
     _save_marked(marked)
 
 
-def unmark(d):
-    marked = _load_marked()
-    marked.discard(d.isoformat())
-    _save_marked(marked)
-
-
 def toggle_marked(d):
     marked = _load_marked()
     key = d.isoformat()
