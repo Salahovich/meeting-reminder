@@ -7,7 +7,7 @@
 </head>
 <body>
   <div id="widget">
-    <div id="bar" class="pywebview-drag-region">
+    <div id="bar" class="drag-region">
       <span class="live-dot"></span>
       <span class="label">ON&nbsp;AIR</span>
       <div class="ticker-wrap"><div id="tickerTrack" class="ticker-track">
@@ -28,12 +28,8 @@
 
       <div class="panel-header workhours-header">WORKING HOURS</div>
       <div class="workhours-period">
-        <div class="workhours-period-title" id="firstHalfTitle"></div>
-        <div id="firstHalfDays" class="workhours-days-row"></div>
-      </div>
-      <div class="workhours-period">
-        <div class="workhours-period-title" id="secondHalfTitle"></div>
-        <div id="secondHalfDays" class="workhours-days-row"></div>
+        <div class="workhours-period-title" id="workHoursTitle"></div>
+        <div id="workHoursDays" class="workhours-days-row"></div>
       </div>
 
       <div class="panel-header office-header">OFFICE DAYS TRACKER</div>
@@ -52,7 +48,18 @@
         <button id="dismissBtn" class="btn btn-dismiss">DISMISS</button>
       </div>
     </div>
+
+    <div id="confirmOverlay" class="confirm-overlay hidden">
+      <div class="confirm-box">
+        <div class="confirm-message" id="confirmMessage"></div>
+        <div class="confirm-actions">
+          <button id="confirmYesBtn" class="btn btn-join">YES</button>
+          <button id="confirmNoBtn" class="btn btn-dismiss">CANCEL</button>
+        </div>
+      </div>
+    </div>
   </div>
+  <audio id="alertSound" src="/assets/countdown.mp3" loop></audio>
   <script src="app.js"></script>
 </body>
 </html>

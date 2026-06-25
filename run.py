@@ -1,4 +1,5 @@
-from meeting_reminder.main import main
+from meeting_reminder.main import ReminderApp
+from meeting_reminder.server import run_server
 
 if __name__ == "__main__":
-    main()
+    run_server(ReminderApp())

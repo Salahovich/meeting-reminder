@@ -1,9 +1,7 @@
 import os
 import threading
-from urllib.parse import parse_qs, urlparse
 
 import msal
-import webview
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOKEN_CACHE_PATH = os.path.join(ROOT_DIR, "token_cache.bin")
@@ -56,7 +54,12 @@ def get_cached_access_token():
         return None
 
 
-def _authorize_url():
+def build_authorize_url():
+    """The OAuth authorize URL — host this in a real browser window (Electron
+    popup, formerly a pywebview window) and watch for navigation to
+    REDIRECT_URI to extract the code. See NOTES.md for why this exact
+    technique (own window + nativeclient redirect) is required here.
+    """
     scope = "%20".join(SCOPES + ["offline_access"])
     return (
         f"{AUTHORITY}/oauth2/v2.0/authorize"
@@ -69,40 +72,17 @@ def _authorize_url():
     )
 
 
-def start_interactive_sign_in(on_complete):
-    """Opens a sign-in window (a real browser-based login, not device-code).
-    on_complete(success: bool, error: str | None) is called once finished.
-    Safe to call even while another pywebview window (e.g. the main widget)
-    and its event loop are already running.
+def complete_sign_in(code):
+    """Exchanges an authorization code (extracted by the caller from the
+    nativeclient redirect) for tokens. Returns (success: bool, error: str | None).
     """
-
-    def handle_code(code):
-        with _lock:
-            cache = _load_cache()
-            app = _build_app(cache)
-            result = app.acquire_token_by_authorization_code(
-                code, scopes=SCOPES, redirect_uri=REDIRECT_URI
-            )
-            if "access_token" not in result:
-                _save_cache(cache)
-                on_complete(False, result.get("error_description", str(result)))
-                return
-            _save_cache(cache)
-        on_complete(True, None)
-
-    def on_loaded():
-        url = sign_in_window.get_current_url()
-        if not url or not url.startswith(REDIRECT_URI):
-            return
-        params = parse_qs(urlparse(url).query)
-        sign_in_window.destroy()
-        if "code" in params:
-            threading.Thread(target=handle_code, args=(params["code"][0],), daemon=True).start()
-        else:
-            error = params.get("error_description", params.get("error", ["Sign-in failed"]))[0]
-            on_complete(False, error)
-
-    sign_in_window = webview.create_window(
-        "Sign in to Microsoft", url=_authorize_url(), width=480, height=640, on_top=True
-    )
-    sign_in_window.events.loaded += on_loaded
+    with _lock:
+        cache = _load_cache()
+        app = _build_app(cache)
+        result = app.acquire_token_by_authorization_code(
+            code, scopes=SCOPES, redirect_uri=REDIRECT_URI
+        )
+        _save_cache(cache)
+        if "access_token" not in result:
+            return False, result.get("error_description", str(result))
+    return True, None

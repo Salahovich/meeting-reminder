@@ -6,8 +6,10 @@ state.json
 timesheet_state.json
 office_days_state.json
 days_off_state.json
+worked_days_state.json
 scratch_timesheet_state_test.json
 token_cache.bin
 assets/*.mp3
 assets/*.wav
 !assets/countdown.mp3
+electron/node_modules
