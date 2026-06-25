@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .claude/
 state.json
+timesheet_state.json
 token_cache.bin
 assets/*.mp3
 assets/*.wav

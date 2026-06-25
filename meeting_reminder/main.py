@@ -2,11 +2,12 @@ import json
 import threading
 import time
 import traceback
-from datetime import datetime, timedelta
+import webbrowser
+from datetime import date, datetime, timedelta
 
 import webview
 
-from . import graph_auth, graph_calendar, state, webui
+from . import graph_auth, graph_calendar, state, timesheet, webui
 from .config import load_config
 from .sound_player import SoundPlayer
 
@@ -28,6 +29,8 @@ class ReminderApp:
         self.sign_in_in_progress = False
         self.scheduled = set()   # meeting IDs that have a _wait_and_fire thread
         self._today_cache = []   # last-fetched today payload, pushed to panel on open
+        self.active_alert_kind = None  # 'meeting' | 'timesheet' | None
+        self.last_timesheet_alert_key = None  # (deadline_iso, hour) of last fired reminder
 
     # ---- auth ----
 
@@ -63,6 +66,10 @@ class ReminderApp:
         while not self.stop_event.is_set():
             try:
                 self._check_meetings()
+            except Exception:
+                traceback.print_exc()
+            try:
+                self._check_timesheet()
             except Exception:
                 traceback.print_exc()
             self._check_alert_timeout()
@@ -152,6 +159,83 @@ class ReminderApp:
         self._fire_alert(meeting)
         state.save_triggered_ids(self.triggered)
 
+    def _check_timesheet(self):
+        self._push_timesheet_status()
+
+        deadline = timesheet.get_next_deadline()
+        if deadline is None:
+            return
+        now = datetime.now()
+        if deadline != now.date():
+            return
+        if not (timesheet.ALERT_START_HOUR <= now.hour <= timesheet.ALERT_END_HOUR):
+            return
+
+        key = (deadline.isoformat(), now.hour)
+        with self.lock:
+            already_fired = self.last_timesheet_alert_key == key
+            meeting_alert_active = self.alert_active
+            if not already_fired and not meeting_alert_active:
+                self.last_timesheet_alert_key = key
+        if not already_fired and not meeting_alert_active:
+            self._fire_timesheet_alert(deadline)
+
+    def _push_timesheet_status(self):
+        with self.lock:
+            if self.alert_active:
+                return
+            panel_open = self.today_panel_open
+        if not panel_open:
+            return
+        deadline, is_submitted = timesheet.get_relevant_deadline()
+        if deadline is None:
+            return
+        if is_submitted:
+            status = "submitted"
+        elif deadline <= date.today():
+            status = "due"
+        else:
+            status = "next"
+        payload = {
+            "deadlineIso": deadline.isoformat(),
+            "periodLabel": timesheet.deadline_period_label(deadline),
+            "status": status,
+        }
+        self._eval_js(f"window.updateTimesheet({json.dumps(payload)})")
+
+    def _fire_timesheet_alert(self, deadline):
+        with self.lock:
+            self.alert_active = True
+            self.active_alert_kind = "timesheet"
+            self.alert_close_at = time.time() + self.config["sound_loop_seconds"]
+            self.today_panel_open = False
+
+        if self.window:
+            webui.set_alert_size(self.window)
+            webui.force_to_front(self.window)
+            payload = {
+                "periodLabel": timesheet.deadline_period_label(deadline),
+                "deadlineText": deadline.strftime("%A, %d %b"),
+            }
+            self._eval_js(f"window.showTimesheetAlert({json.dumps(payload)})")
+
+        try:
+            self.player.play(self.config["sound_file"], self.config["sound_loop_seconds"])
+        except FileNotFoundError:
+            pass
+
+    def mark_timesheet_submitted(self):
+        deadline = timesheet.get_next_deadline()
+        if deadline:
+            timesheet.mark_submitted(deadline)
+
+        with self.lock:
+            is_timesheet_alert = self.alert_active and self.active_alert_kind == "timesheet"
+        if is_timesheet_alert:
+            self.hide_alert()
+
+        self._push_timesheet_status()
+
     def _push_idle_state(self, upcoming):
         with self.lock:
             if self.alert_active:
@@ -170,6 +254,7 @@ class ReminderApp:
     def _fire_alert(self, meeting):
         with self.lock:
             self.alert_active = True
+            self.active_alert_kind = "meeting"
             # Sound loops until the meeting actually starts; the panel (with its
             # "rejoin" button) then stays up a bit longer so a missed join can
             # still be recovered.
@@ -191,15 +276,36 @@ class ReminderApp:
             }
             self._eval_js(f"window.showAlert({json.dumps(payload)})")
 
+        if self.config.get("auto_join") and meeting.join_url:
+            threading.Thread(
+                target=self._auto_join_at_start,
+                args=(meeting, seconds_until_start),
+                daemon=True,
+            ).start()
+
         try:
             self.player.play(self.config["sound_file"], sound_duration)
         except FileNotFoundError:
             pass
 
+    def _auto_join_at_start(self, meeting, delay):
+        """Opens the Teams link the moment the countdown reaches zero.
+
+        Skipped if the alert was already dismissed (or superseded) by then,
+        so a manual dismiss/join before start cancels the auto-open.
+        """
+        if delay > 0 and self.stop_event.wait(delay):
+            return
+        with self.lock:
+            still_active = self.alert_active and self.active_alert_kind == "meeting"
+        if still_active:
+            webbrowser.open(meeting.join_url)
+
     def hide_alert(self):
         with self.lock:
             self.alert_active = False
             self.alert_close_at = None
+            self.active_alert_kind = None
         self.player.stop()
         self._eval_js("window.hideAlert()")
         if self.window:
@@ -244,6 +350,7 @@ class ReminderApp:
         if self.window:
             webui.set_today_size(self.window)
             self._eval_js(f"window.updateTodayList({json.dumps(today_cache)})")
+        self._push_timesheet_status()
 
     def hide_today_panel(self):
         with self.lock:

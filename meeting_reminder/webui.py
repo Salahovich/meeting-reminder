@@ -108,6 +108,9 @@ class JsApi:
     def sign_in(self):
         self._app.request_sign_in()
 
+    def mark_timesheet_submitted(self):
+        self._app.mark_timesheet_submitted()
+
 
 def create_window(app):
     api = JsApi(app)

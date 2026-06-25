@@ -191,6 +191,45 @@ window.updateTodayList = function (list) {
   }
 };
 
+// Called by Python to refresh the "next timesheet submission" row while the panel is open.
+// This is read-only display — the user marks a timesheet submitted from the
+// hourly alert panel itself, or via the button shown here only on the deadline day.
+window.updateTimesheet = function (payload) {
+  const row = document.getElementById('timesheetRow');
+  if (!row) return;
+  row.className = 'today-row timesheet-row' + (payload.status === 'due' ? ' due' : '');
+
+  const deadline = new Date(payload.deadlineIso);
+  const dateLabel = deadline.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
+  const periodLabel = payload.periodLabel === 'mid-month' ? 'Mid-month' : 'End-of-month';
+
+  let statusClass, statusText;
+  if (payload.status === 'submitted') {
+    statusClass = 'status-submitted';
+    statusText = 'Submitted';
+  } else if (payload.status === 'due') {
+    statusClass = 'status-due';
+    statusText = 'Not submitted';
+  } else {
+    statusClass = 'status-next';
+    statusText = 'Waiting';
+  }
+
+  row.innerHTML = '';
+  const left = document.createElement('span');
+  left.className = 'subject';
+  left.innerHTML = `<span class="time-badge">${dateLabel}</span>${escapeHtml(periodLabel)} timesheet &middot; <span class="${statusClass}">${statusText}</span>`;
+  row.appendChild(left);
+
+  if (payload.status === 'due') {
+    const btn = document.createElement('button');
+    btn.className = 'btn-mark-submitted';
+    btn.textContent = 'SUBMITTED';
+    btn.addEventListener('click', () => window.pywebview.api.mark_timesheet_submitted());
+    row.appendChild(btn);
+  }
+};
+
 window.showAlert = function (payload) {
   document.getElementById('bar').classList.add('hidden');
   document.getElementById('alertPanel').classList.remove('hidden');
@@ -199,6 +238,11 @@ window.showAlert = function (payload) {
   document.getElementById('alertSubject').textContent = payload.subject;
   alertStart = new Date(payload.startIso);
   joinUrl = payload.joinUrl || '';
+
+  // Reset to the "meeting" layout in case a timesheet alert left it switched.
+  document.getElementById('countdown').classList.remove('hidden');
+  document.getElementById('joinBtn').classList.remove('hidden');
+  document.getElementById('submitBtn').classList.add('hidden');
 
   // Reset live-state classes from any previous alert
   const countdown = document.getElementById('countdown');
@@ -215,6 +259,33 @@ window.showAlert = function (payload) {
   tickAlert();
   if (countdownTimer) clearInterval(countdownTimer);
   countdownTimer = setInterval(tickAlert, 500);
+};
+
+window.showTimesheetAlert = function (payload) {
+  document.getElementById('bar').classList.add('hidden');
+  document.getElementById('alertPanel').classList.remove('hidden');
+  document.getElementById('todayPanel').classList.add('hidden');
+  todayOpen = false;
+
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
+  alertStart = null;
+
+  const label = payload.periodLabel === 'mid-month' ? 'mid-month' : 'end-of-month';
+  document.getElementById('alertSubject').textContent =
+    `Submit your ${label} timesheet — due ${payload.deadlineText}.`;
+
+  document.getElementById('countdown').classList.add('hidden');
+  document.getElementById('joinBtn').classList.add('hidden');
+  document.getElementById('submitBtn').classList.remove('hidden');
+
+  const badge = document.getElementById('alertBadge');
+  if (badge) {
+    badge.className = 'breaking-badge timesheet';
+    badge.innerHTML = '<span class="live-dot"></span>&nbsp;TIMESHEET REMINDER';
+  }
 };
 
 window.setSignInStatus = function (status, error) {
@@ -281,6 +352,10 @@ whenReady(() => {
 
   document.getElementById('dismissBtn').addEventListener('click', () => {
     window.pywebview.api.dismiss();
+  });
+
+  document.getElementById('submitBtn').addEventListener('click', () => {
+    window.pywebview.api.mark_timesheet_submitted();
   });
 
   document.getElementById('closeBtn').addEventListener('click', () => {

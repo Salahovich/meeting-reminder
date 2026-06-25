@@ -71,7 +71,7 @@ Defaults live in `meeting_reminder/config.py`; create a `config.json` next to
 | `sound_loop_seconds` | `1800` | How long to keep the "REJOIN" panel up after the meeting starts (default: 30 min) |
 | `poll_interval_seconds` | `5` | How often to re-check the calendar |
 | `lookahead_minutes` | `60` | How far ahead to scan for meetings |
-| `auto_join` | `false` | Reserved; current build never auto-opens — the user always clicks JOIN |
+| `auto_join` | `false` | If `true`, opens the Teams join link automatically the instant the countdown hits zero (skipped if the alert was already dismissed/joined by then) |
 
 ## Running automatically at login
 
